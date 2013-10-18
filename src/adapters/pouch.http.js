@@ -9,7 +9,7 @@ if (typeof module !== 'undefined' && module.exports) {
   PouchUtils = require('../pouch.utils.js');
 }
 
-var ajax = PouchUtils.ajax;
+
 
 var HTTP_TIMEOUT = 10000;
 
@@ -150,7 +150,10 @@ var HttpPouch = function(opts, callback) {
 
   // The functions that will be publically available for HttpPouch
   var api = {};
-
+  var ajaxOpts = opts.ajax||{};
+  function ajax(options,callback){
+    return PouchUtils.ajax(PouchUtils.extend({}, ajaxOpts, options), callback);
+  }
   var uuids = {
     list: [],
     get: function(opts, callback) {
