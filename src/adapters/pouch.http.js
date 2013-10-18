@@ -140,7 +140,7 @@ function genUrl(opts, path) {
 }
 
 // Implements the PouchDB API for dealing with CouchDB instances over HTTP
-var HttpPouch = function(opts, callback) {
+function HttpPouch(opts, callback) {
 
   // Parse the URI given by opts.name into an easy-to-use object
   var host = getHost(opts.name, opts);
@@ -912,14 +912,16 @@ var HttpPouch = function(opts, callback) {
     PouchUtils.call(callback, null);
   };
 
-  return api;
-};
+  // Delete the HttpPouch specified by the given name.
+  HttpPouch.destroy = function(name, opts, callback) {
+    var host = getHost(name, opts);
+    ajax({headers: host.headers, method: 'DELETE', url: genDBUrl(host, '')}, callback);
+  };
 
-// Delete the HttpPouch specified by the given name.
-HttpPouch.destroy = function(name, opts, callback) {
-  var host = getHost(name, opts);
-  ajax({headers: host.headers, method: 'DELETE', url: genDBUrl(host, '')}, callback);
-};
+  return api;
+}
+
+
 
 // HttpPouch is a valid adapter.
 HttpPouch.valid = function() {
