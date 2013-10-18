@@ -912,16 +912,14 @@ function HttpPouch(opts, callback) {
     PouchUtils.call(callback, null);
   };
 
-  // Delete the HttpPouch specified by the given name.
-  HttpPouch.destroy = function(name, opts, callback) {
-    var host = getHost(name, opts);
-    ajax({headers: host.headers, method: 'DELETE', url: genDBUrl(host, '')}, callback);
-  };
-
   return api;
 }
 
-
+// Delete the HttpPouch specified by the given name.
+HttpPouch.destroy = function(name, opts, callback) {
+  var host = getHost(name, opts);
+  PouchUtils.ajax({headers: host.headers, method: 'DELETE', url: genDBUrl(host, '')}, callback);
+};
 
 // HttpPouch is a valid adapter.
 HttpPouch.valid = function() {
