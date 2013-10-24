@@ -56,12 +56,49 @@ var RequestManager = function() {
   return api;
 };
 
-// TODO: check CouchDB's replication id generation, generate a unique id particular
-// to this replication
-var genReplicationId = function(src, target, opts) {
-  var filterFun = opts.filter ? opts.filter.toString() : '';
-  return '_local/' + PouchUtils.Crypto.MD5(src.id() + target.id() + filterFun);
-};
+// Replication id generation version 3, like CouchDB does
+// Generate a unique id particular to this replication
+// eg: "89fd5ca28d6e056268623dd201b41cd3+continuous+create_target"
+var genReplicationId = (function() {
+  function replicationId(src, target, opts) {
+    var base = '';
+    // TODO: Give each PouchDB instance a unique identifier and use it here
+    base += src.id();
+    base += target.id();
+
+    if (opts.filter) {
+      if (typeof opts.filter === 'function') {
+        base += opts.filter.toString();
+      } else {
+        //TODO: use filter code instead of filter name
+        base += opts.filter;
+      }
+      if (opts.query_params) {
+        base += opts.query_params;
+      }
+    } else {
+      if (opts.doc_ids) {
+        base += opts.doc_ids;
+      }
+    }
+    return PouchUtils.Crypto.MD5(base);
+  }
+
+  function maybeAppendOptions(opts) {
+    var str = '';
+    for (var key in opts) {
+      if (opts[key]) {
+        str += '+' + key;
+      }
+    }
+    return str;
+  }
+
+  return function(src, target, opts) {
+    var baseId = replicationId(src, target, opts);
+    return baseId + '' + maybeAppendOptions({ continuous: opts.continuous, create_target: opts.create_target });
+  }
+})();
 
 // A checkpoint lets us restart replications from when they were last cancelled
 var fetchCheckpoint = function(src, target, id, callback) {
@@ -96,7 +133,7 @@ function replicate(src, target, opts, promise) {
 
   var requests = new RequestManager();
   var writeQueue = [];
-  var repId = genReplicationId(src, target, opts);
+  var repId = '_local/' + genReplicationId(src, target, opts);
   var results = [];
   var completed = false;
   var pendingRevs = 0;
