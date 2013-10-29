@@ -9,7 +9,7 @@ if (typeof module !== 'undefined' && module.exports) {
   PouchUtils = require('../pouch.utils.js');
 }
 
-var ajax = PouchUtils.ajax;
+
 
 var HTTP_TIMEOUT = 10000;
 
@@ -140,7 +140,7 @@ function genUrl(opts, path) {
 }
 
 // Implements the PouchDB API for dealing with CouchDB instances over HTTP
-var HttpPouch = function(opts, callback) {
+function HttpPouch(opts, callback) {
 
   // Parse the URI given by opts.name into an easy-to-use object
   var host = getHost(opts.name, opts);
@@ -150,7 +150,10 @@ var HttpPouch = function(opts, callback) {
 
   // The functions that will be publically available for HttpPouch
   var api = {};
-
+  var ajaxOpts = opts.ajax || {};
+  function ajax(options, callback) {
+    return PouchUtils.ajax(PouchUtils.extend({}, ajaxOpts, options), callback);
+  }
   var uuids = {
     list: [],
     get: function(opts, callback) {
@@ -691,16 +694,40 @@ var HttpPouch = function(opts, callback) {
     var CHANGES_LIMIT = 25;
 
     if (!api.taskqueue.ready()) {
-      api.taskqueue.addTask('changes', arguments);
-      return;
+      var task = api.taskqueue.addTask('changes', arguments);
+      return {
+        cancel: function() {
+          if (task.task) {
+            return task.task.cancel();
+          }
+          if (Pouch.DEBUG) {
+            console.log(db_url + ': Cancel Changes Feed');
+          }
+          task.parameters[0].aborted = true;
+        }
+      };
     }
     
     if (opts.since === 'latest') {
+      var changes;
       api.info(function (err, info) {
-        opts.since = info.update_seq;
-        api.changes(opts);
+        if (!opts.aborted) {
+          opts.since = info.update_seq;
+          changes = api.changes(opts);
+        }
       });
-      return;
+      // Return a method to cancel this method from processing any more
+      return {
+        cancel: function() {
+          if (changes) {
+            return changes.cancel();
+          }
+          if (Pouch.DEBUG) {
+            console.log(db_url + ': Cancel Changes Feed');
+          }
+          opts.aborted = true;
+        }
+      };
     }
 
     if (Pouch.DEBUG) {
@@ -909,13 +936,140 @@ var HttpPouch = function(opts, callback) {
     PouchUtils.call(callback, null);
   };
 
+  api.replicateOnServer = function(target, opts, promise) {
+    if (!api.taskqueue.ready()) {
+      api.taskqueue.addTask('replicateOnServer', arguments);
+      return promise;
+    }
+    
+    var targetHost = getHost(target.id());
+    var params = {
+      source: host.db,
+      target: targetHost.protocol === host.protocol && targetHost.authority === host.authority ? targetHost.db : targetHost.source
+    };
+
+    if (opts.continuous) {
+      params.continuous = true;
+    }
+
+    if (opts.create_target) {
+      params.create_target = true;
+    }
+
+    if (opts.doc_ids) {
+      params.doc_ids = opts.doc_ids;
+    }
+
+    if (opts.filter && typeof opts.filter === 'string') {
+      params.filter = opts.filter;
+    }
+
+    if (opts.query_params) {
+      params.query_params = opts.query_params;
+    }
+
+    var repOpts = {
+      headers: host.headers,
+      url: host.protocol + '://' + host.host + (host.port === 80 ? '' : (':' + host.port)) + '/',
+      body: params
+    };
+    if (opts.persistent) {
+      var id;
+      for (var key in params) {
+        id += 'key=';
+        id += JSON.stringify(params[key]);
+      }
+      id = PouchUtils.Crypto.MD5(id);
+      repOpts.body._id = id;
+      repOpts.url += '_replicator/' + encodeURIComponent(id);
+      repOpts.method = 'PUT';
+    } else {
+      repOpts.url += '_replicate';
+      repOpts.method = 'POST';
+    }
+
+    var result = {};
+    var xhr;
+    promise.cancel = function(callback) {
+      this.cancelled = true;
+      if (xhr && !result.ok) {
+        xhr.abort();
+      }
+
+      if (opts.persistent) {
+        ajax({headers: repOpts.headers, method: 'GET', url: repOpts.url}, function(err, doc) {
+          // If the replication doc request fails, send an error to the callback
+          if (err) {
+            return PouchUtils.call(callback, err);
+          }
+
+          repOpts.method = 'DELETE';
+          repOpts.url += '?rev=' + encodeURIComponent(doc._rev);
+          ajax(repOpts, function(err, resp, xhr) {
+            // If the replication cancel request fails, send an error to the callback
+            if (err) {
+              return PouchUtils.call(callback, err);
+            }
+            // Send the replication cancel result to the complete callback
+            PouchUtils.call(callback || opts.complete, null, result, xhr);
+          });
+        });
+      } else {
+        if (result._local_id) {
+          repOpts.body = {
+            replication_id: result._local_id
+          };
+        }
+        repOpts.body.cancel = true;
+
+        ajax(repOpts, function(err, resp, xhr) {
+          // If the replication cancel request fails, send an error to the callback
+          if (err) {
+            return PouchUtils.call(callback, err);
+          }
+          // Send the replication cancel result to the complete callback
+          PouchUtils.call(callback || opts.complete, null, result, xhr);
+        });
+      }
+    };
+
+    if (promise.cancelled) {
+      return;
+    }
+
+    xhr = ajax(repOpts, function(err, resp, xhr) {
+      // If the replication fails, send an error to the callback
+      if (err) {
+        return PouchUtils.call(callback, err);
+      }
+
+      result.ok = true;
+
+      // Provided by CouchDB from 1.2.0 onward to cancel replication
+      if (resp._local_id) {
+        result._local_id = resp._local_id;
+      }
+
+      // Send the replication result to the complete callback
+      PouchUtils.call(opts.complete, null, resp, xhr);
+    });
+  };
+
   return api;
-};
+}
 
 // Delete the HttpPouch specified by the given name.
 HttpPouch.destroy = function(name, opts, callback) {
   var host = getHost(name, opts);
-  ajax({headers: host.headers, method: 'DELETE', url: genDBUrl(host, '')}, callback);
+  opts = opts || {};
+  if (typeof opts === 'function') {
+    callback = opts;
+    opts = {};
+  }
+  opts.headers = host.headers;
+  opts.method = 'DELETE';
+  opts.url = genDBUrl(host, '');
+  PouchUtils.ajax(opts, callback);
 };
 
 // HttpPouch is a valid adapter.
