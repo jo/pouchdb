@@ -9,6 +9,8 @@ if (typeof module !== 'undefined' && module.exports) {
   PouchUtils = require('./pouch.utils.js');
 }
 
+var BATCH_SIZE = 1000;
+
 // We create a basic promise so the caller can cancel the replication possibly
 // before we have actually started listening to changes etc
 var Promise = function() {
@@ -182,20 +184,28 @@ function replicate(src, target, opts, promise) {
     target.revsDiff(diff, onRevsDiff(diffCounts));
   }
 
+  var diff = {};
+  var counts = {};
+  function enqueueFetchRevsDiff() {
+    requests.enqueue(fetchRevsDiff, [diff, counts]);
+    diff = {};
+    counts = {};
+  }
+
   function onChange(change) {
     last_seq = change.seq;
     results.push(change);
-    var diff = {};
     diff[change.id] = change.changes.map(function(x) { return x.rev; });
-    var counts = {};
     counts[change.id] = change.changes.length;
     pendingRevs += change.changes.length;
-    requests.enqueue(fetchRevsDiff, [diff, counts]);
+    if (Object.keys(counts).length >= BATCH_SIZE) {
+      enqueueFetchRevsDiff();
+    }
   }
 
   function complete() {
     completed = true;
-    isCompleted();
+    enqueueFetchRevsDiff();
   }
 
   function isCompleted() {
