@@ -27,34 +27,32 @@ adapters.map(function(adapters) {
   });
 
   var docs = [];
-  var amount = 500;
-  for (var i = 0; i < amount; i++) {
-    docs.push({
-      _id: 'doc-' + i,
-      integer: i,
-      string: 'string-' + i
-    });
+  var docsCount = 500;
+  var revsCount = 10;
+  var doc;
+  for (var i = 0; i < docsCount; i++) {
+    for (var j = 1; j <= revsCount; j++) {
+      docs.push({
+        _id: 'doc-' + i,
+        _rev: j + '-rev' + i + '' + j,
+        integer: i,
+        string: 'string-' + i + '-' + j
+      });
+    }
   }
 
   function measure(name, db, fn) {
-    db.bulkDocs({docs: docs}, {}, function(err, results) {
-      var deletedDocs = results.map(function(doc) {
-        return {
-          _id: doc.id,
-          _rev: doc.rev
-        };
-      });
-      db.bulkDocs({docs: deletedDocs }, {}, function() {
-        var msg = adapters.join(':') + ' ' + name;
-        console.time(msg);
-        var now = new Date();
-        fn(function(done) {
-          var duration = new Date() - now;
-          var dps = docs.length / duration * 1000;
-          console.timeEnd(msg);
-          console.log(msg, dps, 'dps');
-          done(dps);
-        });
+    db.bulkDocs({docs: docs}, {new_edits: false}, function(err, results) {
+
+      var msg = adapters.join(':') + ' ' + name;
+      console.time(msg);
+      var now = new Date();
+      fn(function(done) {
+        var duration = new Date() - now;
+        var dps = docs.length / duration * 1000;
+        console.timeEnd(msg);
+        console.log(msg, dps, 'dps');
+        done(dps);
       });
     });
   }
