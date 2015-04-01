@@ -3767,6 +3767,23 @@ adapters.forEach(function (adapters) {
       });
     });
 
+    it('replication with a limit', function () {
+      var db = new PouchDB(dbs.name);
+      var remote = new PouchDB(dbs.remote);
+
+      return remote.bulkDocs([
+        {_id: 'a'},
+        {_id: 'b'}
+      ]).then(function () {
+        return remote.replicate.to(db, {limit: 1, batch_size: 1});
+      }).then(function () {
+        return db.allDocs();
+      }).then(function (res) {
+        res.rows.should.have.length(1);
+        res.rows[0].id.should.equal('a');
+      });
+    });
+
   });
 });
 
