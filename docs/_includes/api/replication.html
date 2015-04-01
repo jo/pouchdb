@@ -28,6 +28,8 @@ All options default to `false` unless otherwise specified.
 * `options.batch_size`: Number of documents to process at a time. Defaults to 100. This affects the number of docs held in memory and the number sent at a time to the target server. You may need to adjust downward if targeting devices with low amounts of memory (e.g. phones) or if the documents are large in size (e.g. with attachments). If your documents are small in size, then increasing this number will probably speed replication up.
 * `options.batches_limit`: Number of batches to process at a time. Defaults to 10. This (along wtih `batch_size`) controls how many docs are kept in memory at a time, so the maximum docs in memory at once would equal `batch_size` &times; `batches_limit`.
 
+**Note:** You can also set `options.checkpointing` to `false` in order to disable the use of checkpoints. Normally you may only want to do this when using the [pouchdb-replication-stream plugin](https://github.com/nolanlawson/pouchdb-replication-stream).
+
 #### Example Usage:
 
 {% highlight js %}
